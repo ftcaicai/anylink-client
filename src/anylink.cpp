@@ -1,7 +1,12 @@
 #include "anylink.h"
 #include <QCloseEvent>
+#include <QDateTime>
 #include <QFile>
+#include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonValue>
+#include <QStyleHints>
+#include <QTextStream>
 #include <QtWidgets>
 #include "configmanager.h"
 #include "detaildialog.h"
@@ -117,17 +122,21 @@ void AnyLink::center()
 }
 
 void AnyLink::loadStyleSheet(const QString &styleSheetFile)
-
 {
     QFile file(styleSheetFile);
-    file.open(QFile::ReadOnly);
-    if (file.isOpen())
-    {
-        QString styleSheet = this->styleSheet();
-        styleSheet += QLatin1String(file.readAll());//读取样式表文件
-        setStyleSheet(styleSheet);//把文件内容传参
-        file.close();
+    if (!file.open(QFile::ReadOnly)) {
+        return;
     }
+    const QString styleSheet = QLatin1String(file.readAll());
+    qApp->setStyleSheet(styleSheet);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
+        style()->unpolish(this);
+        style()->polish(this);
+        update();
+    }, Qt::UniqueConnection);
+#endif
 }
 
 void AnyLink::createTrayActions()
@@ -359,6 +368,52 @@ void AnyLink::saveConfig()
     configManager->saveConfig();
 }
 
+static QString formatRouteList(const QJsonArray &routes)
+{
+    QStringList lines;
+    for (const QJsonValue &value : routes) {
+        const QString cidr = value.toString();
+        const QPair<QHostAddress, int> parsed = QHostAddress::parseSubnet(cidr);
+        if (parsed.second >= 0) {
+            lines << QString("%1/%2").arg(parsed.first.toString()).arg(parsed.second);
+        } else if (!cidr.isEmpty()) {
+            lines << cidr;
+        }
+    }
+    return lines.isEmpty() ? QStringLiteral("(empty)") : lines.join(", ");
+}
+
+void AnyLink::logRouteInfo(const QJsonObject &status)
+{
+    const QString includes = formatRouteList(status["SplitInclude"].toArray());
+    const QString excludes = formatRouteList(status["SplitExclude"].toArray());
+    const QString dns = status["DNS"].toVariant().toStringList().join(",");
+    const QString vpnAddress = status["VPNAddress"].toString();
+    const QString serverAddress = status["ServerAddress"].toString();
+    const QString localAddress = status["LocalAddress"].toString();
+
+    qInfo().noquote() << QString("VPN routes: server=%1 local=%2 vpn=%3 dns=%4")
+                             .arg(serverAddress, localAddress, vpnAddress, dns);
+    qInfo().noquote() << "SplitInclude (secured):" << includes;
+    qInfo().noquote() << "SplitExclude (excluded):" << excludes;
+
+    QFile logFile(tempLocation + "/vpnagent.log");
+    if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        qWarning() << "Failed to append route info to vpnagent.log";
+        return;
+    }
+
+    QTextStream out(&logFile);
+    out.setEncoding(QStringConverter::Utf8);
+    const QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+    out << ts << " [INFO] VPN address: " << vpnAddress
+        << ", local: " << localAddress
+        << ", server: " << serverAddress
+        << ", DNS: " << dns << "\n";
+    out << ts << " [INFO] SplitInclude (secured): " << includes << "\n";
+    out << ts << " [INFO] SplitExclude (excluded): " << excludes << "\n";
+}
+
 /**
  * called by JsonRpcWebSocketClient::connected and every time setting changed
  */
@@ -455,6 +510,7 @@ void AnyLink::getVPNStatus()
             if (!ui->buttonDetails->isEnabled()) {
                 ui->buttonDetails->setEnabled(true);
                 detailDialog->setRoutes(status["SplitExclude"].toArray(), status["SplitInclude"].toArray());
+                logRouteInfo(status);
             }
         }
     });

@@ -67,6 +67,7 @@ private:
     void afterShowOneTime();
 
     void resetVPNStatus();
+    void logRouteInfo(const QJsonObject &status);
 
     void saveConfig();
 
