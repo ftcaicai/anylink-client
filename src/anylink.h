@@ -68,6 +68,9 @@ private:
 
     void resetVPNStatus();
     void logRouteInfo(const QJsonObject &status);
+    void applyLocalSplitExclude();
+    void removeLocalSplitExclude();
+    void appendAgentLog(const QString &message);
 
     void saveConfig();
 
@@ -83,5 +86,6 @@ private slots:
     void on_buttonViewLog_clicked();
     void on_buttonDetails_clicked();
     void on_buttonSecurityTips_clicked();
+    void on_buttonLocalSplitExclude_clicked();
 };
 #endif // ANYLINK_H

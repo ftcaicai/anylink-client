@@ -27,7 +27,9 @@ DetailDialog::~DetailDialog()
 
 void DetailDialog::setRoutes(const QJsonArray &excludes, const QJsonArray &includes)
 {
-//    for(auto it = excludes->constBegin(); it != excludes->constEnd(); it++) {}
+    ui->tableExcluded->setRowCount(0);
+    ui->tableSecured->setRowCount(0);
+
     for(int i = 0; i < excludes.size(); i++) {
         QPair<QHostAddress, int> cidr = QHostAddress::parseSubnet(excludes[i].toString());
         QTableWidgetItem *ip = new QTableWidgetItem(static_cast<QHostAddress>(cidr.first).toString());
@@ -58,6 +60,8 @@ void DetailDialog::clear()
 {
     ui->tableExcluded->clearContents();
     ui->tableSecured->clearContents();
+    ui->tableExcluded->setRowCount(0);
+    ui->tableSecured->setRowCount(0);
 
     ui->labelBytesSent->clear();
     ui->labelBytesReceived->clear();

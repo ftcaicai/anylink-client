@@ -145,6 +145,30 @@
         <translation>界面使用本地语言</translation>
     </message>
     <message>
+        <source>Bypass mainland China IPs</source>
+        <translation>国内 IP 不走 VPN</translation>
+    </message>
+    <message>
+        <source>Local SplitExclude...</source>
+        <translation>本地 SplitExclude...</translation>
+    </message>
+    <message>
+        <source>Failed to apply local SplitExclude: %1</source>
+        <translation>应用本地 SplitExclude 失败：%1</translation>
+    </message>
+    <message>
+        <source>Failed to apply China bypass (try running as administrator):
+%1</source>
+        <translation>应用国内 IP 直连失败（请尝试以管理员身份运行）：
+%1</translation>
+    </message>
+    <message>
+        <source>Failed to apply local SplitExclude (try running as administrator):
+%1</source>
+        <translation>应用本地 SplitExclude 失败（请尝试以管理员身份运行）：
+%1</translation>
+    </message>
+    <message>
         <location line="+23"/>
         <source>About</source>
         <translation>帮助</translation>
@@ -213,6 +237,23 @@
         <location line="+4"/>
         <source>Security Tips</source>
         <translation>安全提醒</translation>
+    </message>
+</context>
+<context>
+    <name>LocalExclude</name>
+    <message>
+        <source>Local SplitExclude</source>
+        <translation>本地 SplitExclude</translation>
+    </message>
+    <message>
+        <source>One CIDR per line (e.g. 1.1.1.1/32 or 10.0.0.0/8). Traffic to these destinations will bypass the VPN. Takes effect on the next connect. Windows may require running as administrator.</source>
+        <translation>每行一条 CIDR（例如 1.1.1.1/32 或 10.0.0.0/8）。这些地址的流量将不走 VPN。下次连接时生效。Windows 上可能需要以管理员身份运行。</translation>
+    </message>
+    <message>
+        <source>1.1.1.1/32
+10.20.0.0/16</source>
+        <translation>1.1.1.1/32
+10.20.0.0/16</translation>
     </message>
 </context>
 <context>

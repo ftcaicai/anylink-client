@@ -1,4 +1,4 @@
-QT       += core gui websockets widgets
+QT       += core gui network websockets widgets concurrent
 
 CONFIG += c++14
 TRANSLATIONS = i18n/anylink_zh_CN.ts
@@ -62,6 +62,7 @@ macx {
 }
 
 win32 {
+    LIBS += -liphlpapi -lws2_32
     # https://doc.qt.io/qt-6/qmake-variable-reference.html#version
     #RC_FILE = resource.rc
     RC_ICONS = resource\windows\anylink.ico
@@ -92,8 +93,10 @@ SOURCES += \
     src/jsonrpcwebsocketclient.cpp \
     src/keychainclass.cpp \
     src/loading.cpp \
+    src/localexclude.cpp \
     src/main.cpp \
     src/profilemanager.cpp \
+    src/routeutil.cpp \
     src/textbrowser.cpp
 
 HEADERS += \
@@ -104,12 +107,15 @@ HEADERS += \
     src/jsonrpcwebsocketclient.h \
     src/keychainclass.h \
     src/loading.h \
+    src/localexclude.h \
     src/profilemanager.h \
+    src/routeutil.h \
     src/textbrowser.h
 
 FORMS += \
     src/anylink.ui \
     src/detaildialog.ui \
+    src/localexclude.ui \
     src/profilemanager.ui \
     src/textbrowser.ui
 

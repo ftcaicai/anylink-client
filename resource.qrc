@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file>resource/style.qss</file>
+        <file>resource/chnroutes.txt</file>
         <file>resource/README.md</file>
         <file>resource/README_zh_CN.md</file>
     </qresource>

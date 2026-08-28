@@ -5,13 +5,17 @@
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonValue>
+#include <QPointer>
 #include <QStyleHints>
 #include <QTextStream>
+#include <QtConcurrent>
 #include <QtWidgets>
 #include "configmanager.h"
 #include "detaildialog.h"
 #include "jsonrpcwebsocketclient.h"
+#include "localexclude.h"
 #include "profilemanager.h"
+#include "routeutil.h"
 #include "textbrowser.h"
 #include "ui_anylink.h"
 
@@ -86,7 +90,11 @@ AnyLink::AnyLink(QWidget *parent)
     // exit
 }
 
-AnyLink::~AnyLink() { delete ui; }
+AnyLink::~AnyLink()
+{
+    RouteUtil::removeLocalExcludes();
+    delete ui;
+}
 
 void AnyLink::closeEvent(QCloseEvent *event)
 {
@@ -206,6 +214,7 @@ void AnyLink::initConfig()
     ui->checkBoxLang->setChecked(configManager->config["local"].toBool());
     ui->checkBoxCiscoCompat->setChecked(configManager->config["cisco_compat"].toBool());
     ui->checkBoxDtls->setChecked(configManager->config["no_dtls"].toBool());
+    ui->checkBoxBypassChina->setChecked(configManager->config["bypassChina"].toBool());
 
     connect(ui->checkBoxAutoLogin, &QCheckBox::toggled, this, [this](bool checked) {
         configManager->config["autoLogin"] = checked;
@@ -237,6 +246,10 @@ void AnyLink::initConfig()
     connect(ui->checkBoxDtls, &QCheckBox::toggled, this, [this](bool checked) {
         configManager->config["no_dtls"] = checked;
         configVPN();
+        saveConfig();
+    });
+    connect(ui->checkBoxBypassChina, &QCheckBox::toggled, this, [this](bool checked) {
+        configManager->config["bypassChina"] = checked;
         saveConfig();
     });
 }
@@ -347,6 +360,8 @@ void AnyLink::afterShowOneTime()
 
 void AnyLink::resetVPNStatus()
 {
+    removeLocalSplitExclude();
+
     ui->labelChannelType->clear();
     ui->labelTlsCipherSuite->clear();
     ui->labelDtlsCipherSuite->clear();
@@ -387,6 +402,7 @@ void AnyLink::logRouteInfo(const QJsonObject &status)
 {
     const QString includes = formatRouteList(status["SplitInclude"].toArray());
     const QString excludes = formatRouteList(status["SplitExclude"].toArray());
+    const QString localExcludes = formatRouteList(configManager->config["localSplitExclude"].toArray());
     const QString dns = status["DNS"].toVariant().toStringList().join(",");
     const QString vpnAddress = status["VPNAddress"].toString();
     const QString serverAddress = status["ServerAddress"].toString();
@@ -394,8 +410,16 @@ void AnyLink::logRouteInfo(const QJsonObject &status)
 
     qInfo().noquote() << QString("VPN routes: server=%1 local=%2 vpn=%3 dns=%4")
                              .arg(serverAddress, localAddress, vpnAddress, dns);
+    const bool bypassChina = configManager->config["bypassChina"].toBool();
+    const int chinaCount = bypassChina ? RouteUtil::chinaRoutes().size() : 0;
+    const QString chinaStatus = bypassChina
+        ? QString("enabled, prefixes=%1").arg(chinaCount)
+        : QStringLiteral("disabled");
+
     qInfo().noquote() << "SplitInclude (secured):" << includes;
     qInfo().noquote() << "SplitExclude (excluded):" << excludes;
+    qInfo().noquote() << "Local SplitExclude:" << localExcludes;
+    qInfo().noquote() << "China bypass:" << chinaStatus;
 
     QFile logFile(tempLocation + "/vpnagent.log");
     if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
@@ -412,6 +436,101 @@ void AnyLink::logRouteInfo(const QJsonObject &status)
         << ", DNS: " << dns << "\n";
     out << ts << " [INFO] SplitInclude (secured): " << includes << "\n";
     out << ts << " [INFO] SplitExclude (excluded): " << excludes << "\n";
+    out << ts << " [INFO] Local SplitExclude: " << localExcludes << "\n";
+    out << ts << " [INFO] China bypass: " << chinaStatus << "\n";
+}
+
+void AnyLink::appendAgentLog(const QString &message)
+{
+    qInfo().noquote() << message;
+    QFile logFile(tempLocation + "/vpnagent.log");
+    if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        return;
+    }
+    QTextStream out(&logFile);
+    out.setEncoding(QStringConverter::Utf8);
+    out << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
+        << " [INFO] " << message << "\n";
+}
+
+void AnyLink::applyLocalSplitExclude()
+{
+    QStringList cidrs;
+    const QJsonArray arr = configManager->config["localSplitExclude"].toArray();
+    for (const QJsonValue &value : arr) {
+        const QString cidr = value.toString().trimmed();
+        if (!cidr.isEmpty()) {
+            cidrs << cidr;
+        }
+    }
+    const bool bypassChina = configManager->config["bypassChina"].toBool();
+    const QString vpnAddress = ui->labelVPNAddress->text();
+    if (bypassChina) {
+        appendAgentLog(QString("China bypass: enabled, prefixes=%1").arg(RouteUtil::chinaRoutes().size()));
+    } else {
+        appendAgentLog(QStringLiteral("China bypass: disabled"));
+    }
+
+    QPointer<AnyLink> self(this);
+    (void)QtConcurrent::run([self, cidrs, bypassChina, vpnAddress]() {
+        const RouteApplyResult result = RouteUtil::applyLocalExcludes(cidrs, bypassChina, vpnAddress);
+        if (!self) {
+            return;
+        }
+        QMetaObject::invokeMethod(self.data(), [self, result]() {
+            if (!self) {
+                return;
+            }
+            for (const QString &line : result.logs) {
+                self->appendAgentLog(line);
+            }
+            if (result.bypassChina) {
+                self->appendAgentLog(QString("China bypass: added %1 prefixes").arg(result.chinaAdded));
+            }
+            if (!result.gatewayError.isEmpty()) {
+                const QString msg = self->tr("Failed to apply local SplitExclude: %1").arg(result.gatewayError);
+                self->appendAgentLog(msg);
+                error(msg, self);
+                return;
+            }
+            QStringList failures;
+            if (!result.customFailures.isEmpty()) {
+                failures << self->tr("Failed to apply local SplitExclude (try running as administrator):\n%1")
+                                .arg(result.customFailures.join('\n'));
+            }
+            if (!result.chinaError.isEmpty()) {
+                failures << self->tr("Failed to apply China bypass (try running as administrator):\n%1")
+                                .arg(result.chinaError);
+            }
+            if (!failures.isEmpty()) {
+                const QString msg = failures.join(QLatin1String("\n\n"));
+                self->appendAgentLog(msg);
+                error(msg, self);
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+void AnyLink::removeLocalSplitExclude()
+{
+    QPointer<AnyLink> self(this);
+    (void)QtConcurrent::run([self]() {
+        const RouteApplyResult result = RouteUtil::removeLocalExcludes();
+        if (!self) {
+            return;
+        }
+        QMetaObject::invokeMethod(self.data(), [self, result]() {
+            if (!self) {
+                return;
+            }
+            for (const QString &line : result.logs) {
+                self->appendAgentLog(line);
+            }
+            if (result.chinaRemoved > 0) {
+                self->appendAgentLog(QString("China bypass: removed %1 prefixes").arg(result.chinaRemoved));
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 /**
@@ -509,8 +628,16 @@ void AnyLink::getVPNStatus()
 
             if (!ui->buttonDetails->isEnabled()) {
                 ui->buttonDetails->setEnabled(true);
-                detailDialog->setRoutes(status["SplitExclude"].toArray(), status["SplitInclude"].toArray());
+                QJsonArray excludes = status["SplitExclude"].toArray();
+                const QJsonArray localExcludes = configManager->config["localSplitExclude"].toArray();
+                for (const QJsonValue &value : localExcludes) {
+                    if (!excludes.contains(value)) {
+                        excludes.append(value);
+                    }
+                }
+                detailDialog->setRoutes(excludes, status["SplitInclude"].toArray());
                 logRouteInfo(status);
+                applyLocalSplitExclude();
             }
         }
     });
@@ -585,4 +712,10 @@ void AnyLink::on_buttonSecurityTips_clicked()
     TextBrowser textBrowser(tr("Security Tips"),this);
     textBrowser.setMarkdown(data);
     textBrowser.exec();
+}
+
+void AnyLink::on_buttonLocalSplitExclude_clicked()
+{
+    LocalExclude dialog(this);
+    dialog.exec();
 }

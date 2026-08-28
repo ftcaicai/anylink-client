@@ -596,6 +596,23 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QCheckBox" name="checkBoxBypassChina">
+           <property name="text">
+            <string>Bypass mainland China IPs</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonLocalSplitExclude">
+           <property name="text">
+            <string>Local SplitExclude...</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item row="0" column="1">
